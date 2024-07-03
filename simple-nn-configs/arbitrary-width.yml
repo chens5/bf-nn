@@ -1,0 +1,10 @@
+epochs: 5000
+device: cuda:7
+log_dir: /data/sam/bf-nn
+init: random-positive-init
+loss_func: mean_squared_error_loss
+activation: relu
+layer_type: SingleLayerArbitraryWidthBFLayer
+width: 2
+bias: 0
+dataset_size: 9

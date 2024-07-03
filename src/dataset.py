@@ -38,6 +38,7 @@ def three_node_path(edge_val, beta = 100):
     y = torch.tensor([[0], [edge_val], [edge_val]], dtype=torch.float)
     return x, edge_index, edge_attr, y
 
+
 def construct_small_eight_graphs():
     dataset = []
     # Four two node graphs
@@ -48,7 +49,21 @@ def construct_small_eight_graphs():
     
     # Four 3 node path graphs
     for i in range(4):
+        x, edge_index, edge_attr, y = three_node_path(i + 1, beta = 100)
+        data = BellmanFordStep(x = x, edge_index = edge_index, edge_attr = edge_attr, y=y)
+        dataset.append(data)
+
+    return dataset
+
+def construct_arbitrary_dataset(size):
+    dataset = []
+    for i in range(size):
         x, edge_index, edge_attr, y = two_node_graph(i + 1, beta = 100)
+        data = BellmanFordStep(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y)
+        dataset.append(data)
+    
+    for i in range(size):
+        x, edge_index, edge_attr, y = three_node_path(i + 1, beta = 100)
         data = BellmanFordStep(x = x, edge_index = edge_index, edge_attr = edge_attr, y=y)
         dataset.append(data)
 
