@@ -66,7 +66,7 @@ class SingleLayerArbitraryWidthBFLayer(MessagePassing):
             torch.nn.init.uniform_(self.W_2.bias, a = 0.0, b=1.0)
 
     def forward(self, x, edge_index, edge_attr):
-        return self.W_2(self.propagate(edge_index, x=x, edge_attr=edge_attr))
+        return self.act(self.W_2(self.propagate(edge_index, x=x, edge_attr=edge_attr)))
     
     def message(self, x_j, edge_attr):
         return self.act(self.W_1(torch.cat((x_j, edge_attr), dim=-1)))

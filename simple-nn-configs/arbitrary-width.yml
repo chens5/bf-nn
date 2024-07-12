@@ -5,6 +5,6 @@ init: random-positive-init
 loss_func: mean_squared_error_loss
 activation: relu
 layer_type: SingleLayerArbitraryWidthBFLayer
-width: 2
-bias: 0
-dataset_size: 9
+width: 4
+bias: 1
+dataset_size: 8
