@@ -1,5 +1,6 @@
 import torch
 from torch.nn import Linear, Parameter, ReLU, LeakyReLU
+import torch.nn as nn
 from torch_geometric.nn import MessagePassing
 from torch_geometric.utils import add_self_loops, degree
 
@@ -35,11 +36,12 @@ class SimpleBFLayer(MessagePassing):
         return self.relu(self.W_1(torch.cat((x_j, edge_attr), dim=-1)))
 
 class SingleLayerArbitraryWidthBFLayer(MessagePassing):
-    def __init__(self, width=2, bias=False, act='relu'):
+    def __init__(self, width=2, bias=False, act='ReLU', **kwargs):
         super().__init__(aggr='min')
         self.W_1 = Linear(in_features = 2, out_features = width, bias=bias)
 
-        self.act = ReLU()
+        # self.act = ReLU()
+        self.act = globals()[act]()
 
         self.W_2 = Linear(in_features=width, out_features=1, bias=bias)
         if bias:
@@ -71,3 +73,14 @@ class SingleLayerArbitraryWidthBFLayer(MessagePassing):
     def message(self, x_j, edge_attr):
         return self.act(self.W_1(torch.cat((x_j, edge_attr), dim=-1)))
 
+
+
+class BFModel(nn.Module):
+    def __init__(self, width, depth, bias=True, act='ReLU', **kwargs):
+        super(BFModel, self).__init__()
+        self.module_list = nn.ModuleList([SingleLayerArbitraryWidthBFLayer(width,bias=bias, act=act) for _ in range(depth)])
+
+    def forward(self, x, edge_index, edge_attr):
+        for layer in self.module_list:
+            x = layer(x, edge_index=edge_index, edge_attr=edge_attr)
+        return x

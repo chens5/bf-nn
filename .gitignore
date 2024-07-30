@@ -34,6 +34,7 @@ experiment-configs/
 output/
 images/
 *.ipynb
+*.pyc
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

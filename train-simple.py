@@ -51,11 +51,11 @@ def train_simple(train_dataloader,
                  save_freq=100,
                  init='random-init',
                  activation='relu', 
-                 layer=SimpleBFLayer,
+                 layer="SimpleBFLayer",
                  bias=True, 
                  width=2):
     
-    gnn = layer(act=activation, width=width, bias=bias)
+    gnn = globals()[layer](act=activation, width=width, bias=bias)
     # initialize weights
     if init == 'random-init':
         gnn.random_init()
@@ -136,29 +136,25 @@ def main():
         trial = str(i)
         if args.layer_type == 'SimpleBFLayer':
             log_dir = os.path.join(args.log_dir,
-                                args.layer_type,
-                                args.activation,
-                                args.loss_func, 
-                                args.init, 
-                                trial)
+                                    args.layer_type,
+                                    args.activation,
+                                    args.loss_func, 
+                                    args.init, 
+                                    trial)
         elif args.layer_type == 'SingleLayerArbitraryWidthBFLayer':
             log_dir = os.path.join(args.log_dir,
-                                args.layer_type,
-                                args.activation,
-                                args.loss_func, 
-                                args.init,
-                                f'w-{args.width}',
-                                bias_for_log_dir,
-                                f'ds-{args.dataset_size}', 
-                                trial)
+                                    args.layer_type,
+                                    args.activation,
+                                    args.loss_func, 
+                                    args.init,
+                                    f'w-{args.width}',
+                                    bias_for_log_dir,
+                                    f'ds-{args.dataset_size}', 
+                                    trial)
 
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         print("Logging to: ",  log_dir)
-        if args.layer_type == 'SimpleBFLayer':
-            layer_type = SimpleBFLayer
-        elif args.layer_type == 'SingleLayerArbitraryWidthBFLayer':
-            layer_type = SingleLayerArbitraryWidthBFLayer
 
         # dataset = construct_small_eight_graphs()
         # train_dataloader = DataLoader(dataset, batch_size = 8)
@@ -174,8 +170,9 @@ def main():
                     save_freq=50,
                     init = args.init,
                     activation=args.activation,
-                    layer=layer_type,
-                    bias=bias)
+                    layer=args.layer_type,
+                    bias=bias,
+                    width=args.width)
 
 if __name__=='__main__':
     main()
