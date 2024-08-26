@@ -42,7 +42,16 @@ def l1_regularization_term(model):
 def l1_regularized_loss(out, batch, gnn=None, eta=0.1):
     return torch.sum(torch.square(out - batch.y)) + eta * l1_regularization_term(gnn)
 
+def l0_regularized_loss(out, batch, gnn=None, eta=0.1):
+    assert gnn.module_list[0].l0 == True
+    l0 = 0.
+    for layer in gnn.module_list:
+        l0 += layer.get_l0_regularization_term()
+
+    return torch.sum(torch.square(out - batch.y)) + eta * l0
+
 def train_simple(train_dataloader, 
+                 cfg,
                  epochs=100, 
                  loss_func='mean_squared_error_loss', 
                  device='cuda:0', 
@@ -50,12 +59,13 @@ def train_simple(train_dataloader,
                  lr=0.001,
                  save_freq=100,
                  init='random-init',
-                 activation='relu', 
-                 layer="SimpleBFLayer",
-                 bias=True, 
-                 width=2):
-    
-    gnn = globals()[layer](act=activation, width=width, bias=bias)
+                 layer="SimpleBFLayer", 
+                 eta=0.1):
+    print(cfg)
+    if loss_func == 'l0_regularized_loss':
+        gnn = globals()[layer](l0_regularizer=True, **cfg)
+    else:
+        gnn = globals()[layer](**cfg)
     # initialize weights
     if init == 'random-init':
         gnn.random_init()
@@ -91,7 +101,7 @@ def train_simple(train_dataloader,
             optimizer.zero_grad()
             batch.to(device)
             out = gnn(batch.x, batch.edge_index, batch.edge_attr)
-            loss = globals()[loss_func](out, batch, gnn=gnn)
+            loss = globals()[loss_func](out, batch, gnn=gnn, eta=eta)
 
             loss_per_epoch = loss.detach()
             loss.backward()
@@ -116,63 +126,83 @@ def main():
     parser.add_argument('--log-dir', type=str)
     parser.add_argument('--num-trials', type=int)
     parser.add_argument('--lr', type=float, default=0.001)
-    parser.add_argument('--activation', type=str, default='relu')
     parser.add_argument('--init', type=str, default='random-init')
     parser.add_argument('--loss-func', type=str, default='mean_squared_error_loss')
-    parser.add_argument('--layer-type', type=str, default='SimpleBFLayer')
-    parser.add_argument('--dataset-size', type=int, default=16)
-    parser.add_argument('--width', type=int, default=2)
-    parser.add_argument('--bias', type=int, default=1)
+    parser.add_argument('--dataset-size', type=str)
+    parser.add_argument('--eta', type=float, default=0.10)
+    parser.add_argument('--model-configs', type=str)
+    parser.add_argument('--layer-type', type=str, default='BFModel')
+    parser.add_argument('--perturb', type=int)
 
     args = parser.parse_args()
 
-    if args.bias == 1:
-        bias = True
-        bias_for_log_dir='bias'
-    else:
-        bias = False
-        bias_for_log_dir='no-bias'
-    for i in range(args.num_trials):
-        trial = str(i)
-        if args.layer_type == 'SimpleBFLayer':
-            log_dir = os.path.join(args.log_dir,
-                                    args.layer_type,
-                                    args.activation,
-                                    args.loss_func, 
-                                    args.init, 
-                                    trial)
-        elif args.layer_type == 'SingleLayerArbitraryWidthBFLayer':
-            log_dir = os.path.join(args.log_dir,
-                                    args.layer_type,
-                                    args.activation,
-                                    args.loss_func, 
-                                    args.init,
-                                    f'w-{args.width}',
-                                    bias_for_log_dir,
-                                    f'ds-{args.dataset_size}', 
-                                    trial)
+    ## Get model configuration
+    with open(args.model_configs, 'r') as file:
+        model_configs = yaml.safe_load(file)
 
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-        print("Logging to: ",  log_dir)
+    perturb = True if args.perturb == 1 else False
 
-        # dataset = construct_small_eight_graphs()
-        # train_dataloader = DataLoader(dataset, batch_size = 8)
-        dataset = construct_arbitrary_dataset(args.dataset_size)
-        train_dataloader = DataLoader(dataset, batch_size = args.dataset_size)
+    for model in model_configs:
+        cfg = model_configs[model]
+        if cfg['bias']:
+            bias_for_log_dir='bias'
+        else:
+            bias_for_log_dir='no-bias'
+        activation = cfg['act']
+        width = cfg['width']
+        depth = cfg['depth']
+        #dataset_sizes = [4, 8, 16, 32, 64]
+        dataset_sizes = [64]
+        for sz in dataset_sizes:
+            for i in range(args.num_trials):
+                trial = str(i)
+                dstr = f'ds-{sz}-per' if perturb else f'ds-{sz}'
+                if 'regularized' in args.loss_func:
+                    log_dir = os.path.join(args.log_dir,
+                                           args.layer_type,
+                                           activation,
+                                           args.loss_func,
+                                           f'eta-{args.eta}', 
+                                           args.init,
+                                           model,
+                                           bias_for_log_dir,
+                                           dstr, 
+                                           trial)
+                else:
+                    log_dir = os.path.join(args.log_dir,
+                                            args.layer_type,
+                                            activation,
+                                            args.loss_func, 
+                                            args.init,
+                                            model,
+                                            bias_for_log_dir,
+                                            dstr, 
+                                            trial)
 
-        train_simple(train_dataloader=train_dataloader,
-                    epochs=args.epochs,
-                    loss_func = args.loss_func,
-                    device=args.device,
-                    log_dir=log_dir,
-                    lr=args.lr,
-                    save_freq=50,
-                    init = args.init,
-                    activation=args.activation,
-                    layer=args.layer_type,
-                    bias=bias,
-                    width=args.width)
+                if not os.path.exists(log_dir):
+                    os.makedirs(log_dir)
+                print("Logging to: ",  log_dir)
+
+                dataset = construct_small_graph_dataset(sz, inject_non_zero=perturb)
+                if perturb:
+                    save_dataset = os.path.join(log_dir, 'train_dataset.pt')
+                    torch.save(dataset, save_dataset)
+                #dataset = construct_m_path_dataset(depth + 1, sz=args.dataset_size)
+                print("Size of dataset", len(dataset))
+                batch_sz = len(dataset)
+                train_dataloader = DataLoader(dataset, batch_size = batch_sz, shuffle=True)
+
+                train_simple(train_dataloader=train_dataloader,
+                            cfg=cfg,
+                            epochs=args.epochs,
+                            loss_func = args.loss_func,
+                            device=args.device,
+                            log_dir=log_dir,
+                            lr=args.lr,
+                            save_freq=50,
+                            init = args.init, 
+                            layer=args.layer_type, 
+                            eta=args.eta)
 
 if __name__=='__main__':
     main()

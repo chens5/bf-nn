@@ -25,14 +25,18 @@ echo "Epochs: $epochs"
 echo "Log directory: $log_dir"
 echo "Loss function: $loss_func"
 echo "Initialization: $init"
-echo "Activation: $activation"
 echo "Layer type: $layer_type"
+echo "config file: $model_configs"
+echo "dataset size: $dataset_size"
 
 python train-simple.py --epochs $epochs \
 --device $device \
 --log-dir $log_dir \
 --init $init \
 --loss-func $loss_func \
---activation $activation \
 --layer-type $layer_type \
+--dataset-size $dataset_size \
+--model-configs $model_configs \
+--eta $eta \
+--perturb $perturb \
 --num-trials $2

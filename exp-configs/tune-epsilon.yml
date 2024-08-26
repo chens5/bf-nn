@@ -1,0 +1,10 @@
+epochs: 5000
+device: cuda:3
+log_dir: /data/sam/bf-nn
+init: random-positive-init
+loss_func: l0_regularized_loss
+model_configs: model-configs/configs-l0.yaml
+layer_type: BFModel
+dataset_size: auto
+eta: 0.01
+perturb: 0
