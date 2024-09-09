@@ -32,15 +32,23 @@ def absolute_error(out, batch, **kwargs):
 def mean_absolute_error(out, batch, **kwargs):
     return torch.mean(torch.abs(out-batch.y))
 
-def l1_regularization_term(model):
-    l1_regularization = 0.
+# def l1_regularization_term(model):
+#     l1_regularization = 0.
 
+#     for param in model.parameters():
+#         l1_regularization += param.abs().sum()
+#     return l1_regularization
+
+def reg_term(model, p):
+    reg = 0.
     for param in model.parameters():
-        l1_regularization += param.abs().sum()
-    return l1_regularization
+        reg += torch.pow(param.abs(), p).sum()
+    return reg
+
+
 
 def l1_regularized_loss(out, batch, gnn=None, eta=0.1):
-    return torch.sum(torch.square(out - batch.y)) + eta * l1_regularization_term(gnn)
+    return torch.sum(torch.square(out - batch.y)), eta * reg_term(gnn, 1)
 
 def l0_regularized_loss(out, batch, gnn=None, eta=0.1):
     assert gnn.module_list[0].l0 == True
@@ -48,7 +56,10 @@ def l0_regularized_loss(out, batch, gnn=None, eta=0.1):
     for layer in gnn.module_list:
         l0 += layer.get_l0_regularization_term()
 
-    return torch.sum(torch.square(out - batch.y)) + eta * l0
+    return torch.sum(torch.square(out - batch.y)), eta * l0
+
+def l05_regularized_loss(out, batch, gnn=None, eta=0.1):
+    return torch.sum(torch.square(out - batch.y)), eta * reg_term(gnn, 0.5)
 
 def train_simple(train_dataloader, 
                  cfg,
@@ -101,14 +112,21 @@ def train_simple(train_dataloader,
             optimizer.zero_grad()
             batch.to(device)
             out = gnn(batch.x, batch.edge_index, batch.edge_attr)
-            loss = globals()[loss_func](out, batch, gnn=gnn, eta=eta)
+            if 'regularized' in loss_func:
+                mse_loss, reg_loss = globals()[loss_func](out, batch, gnn=gnn, eta=eta)
+                loss = mse_loss+reg_loss
+            else:
+                loss = globals()[loss_func](out, batch, gnn=gnn, eta=eta)
 
             loss_per_epoch = loss.detach()
             loss.backward()
             optimizer.step()
 
-
-        writer.add_scalar('train/mse_loss', loss_per_epoch, epoch)
+        if 'regularized' in loss_func:
+            writer.add_scalar('train/reg_loss', reg_loss.detach(), epoch)
+            writer.add_scalar('train/mse_loss', mse_loss.detach(), epoch)
+        else:
+            writer.add_scalar('train/training_loss', loss_per_epoch, epoch)
 
         if epoch % save_freq == 0:
             path = os.path.join(record_dir, f'model_{epoch}.pt')
@@ -128,11 +146,11 @@ def main():
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--init', type=str, default='random-init')
     parser.add_argument('--loss-func', type=str, default='mean_squared_error_loss')
-    parser.add_argument('--dataset-size', type=str)
     parser.add_argument('--eta', type=float, default=0.10)
     parser.add_argument('--model-configs', type=str)
     parser.add_argument('--layer-type', type=str, default='BFModel')
     parser.add_argument('--perturb', type=int)
+    parser.add_argument('--dataset-sizes', type=int, nargs='+')
 
     args = parser.parse_args()
 
@@ -152,36 +170,46 @@ def main():
         width = cfg['width']
         depth = cfg['depth']
         #dataset_sizes = [4, 8, 16, 32, 64]
-        dataset_sizes = [64]
+        dataset_sizes = args.dataset_sizes
         for sz in dataset_sizes:
-            for i in range(args.num_trials):
-                trial = str(i)
-                dstr = f'ds-{sz}-per' if perturb else f'ds-{sz}'
-                if 'regularized' in args.loss_func:
-                    log_dir = os.path.join(args.log_dir,
-                                           args.layer_type,
-                                           activation,
-                                           args.loss_func,
-                                           f'eta-{args.eta}', 
-                                           args.init,
-                                           model,
-                                           bias_for_log_dir,
-                                           dstr, 
-                                           trial)
-                else:
-                    log_dir = os.path.join(args.log_dir,
-                                            args.layer_type,
-                                            activation,
-                                            args.loss_func, 
-                                            args.init,
-                                            model,
-                                            bias_for_log_dir,
-                                            dstr, 
-                                            trial)
+            dstr = f'ds-{sz}-per' if perturb else f'ds-{sz}'
+            if 'regularized' in args.loss_func:
+                log_dir = os.path.join(args.log_dir,
+                                        args.layer_type,
+                                        activation,
+                                        args.loss_func,
+                                        f'lr-{args.lr}',
+                                        f'eta-{args.eta}', 
+                                        args.init,
+                                        model,
+                                        bias_for_log_dir,
+                                        dstr )
+            else:
+                log_dir = os.path.join(args.log_dir,
+                                        args.layer_type,
+                                        activation,
+                                        args.loss_func,
+                                        f'lr-{args.lr}',  
+                                        args.init,
+                                        model,
+                                        bias_for_log_dir,
+                                        dstr )
+            f = []
+            for (dirpath, dirnames, filenames) in os.walk(log_dir):
+                f.extend([int(name) for name in dirnames])
+                break
+            cur_trial = 0
+            if len(f) > 0:
+                
+                cur_trial = max(f) + 1
 
-                if not os.path.exists(log_dir):
-                    os.makedirs(log_dir)
-                print("Logging to: ",  log_dir)
+            for i in range(cur_trial, cur_trial + args.num_trials):
+                trial = str(i)
+                record_dir = os.path.join(log_dir, trial)
+                
+                if not os.path.exists(record_dir):
+                    os.makedirs(record_dir)
+                print("Logging to: ",  record_dir)
 
                 dataset = construct_small_graph_dataset(sz, inject_non_zero=perturb)
                 if perturb:
@@ -197,7 +225,7 @@ def main():
                             epochs=args.epochs,
                             loss_func = args.loss_func,
                             device=args.device,
-                            log_dir=log_dir,
+                            log_dir=record_dir,
                             lr=args.lr,
                             save_freq=50,
                             init = args.init, 

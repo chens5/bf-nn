@@ -24,8 +24,8 @@ class BellmanFordStep(Data):
                  pos: OptTensor = None, **kwargs):
         super().__init__(x, edge_index, edge_attr, y, pos, **kwargs)
 
-# parameters: G: networkx graph
-def m_step_bf_instance(G, m, start=0):
+# parameters: G: networkx graph, m: final step, start: first step
+def m_step_bf_instance(G, m, start=0, start_node=0):
     G = copy.deepcopy(G)
     temp = {}
     for node in G.nodes:
@@ -34,6 +34,8 @@ def m_step_bf_instance(G, m, start=0):
         start_dict = copy.deepcopy(temp)
     for k in range(m):
         for node in G.nodes:
+            if node == start_node:
+                continue
             min_val = G.nodes[node]['attr']
             for neighbor in G.neighbors(node):
                 val = G[node][neighbor]['weight'] + G.nodes[neighbor]['attr']
@@ -151,3 +153,11 @@ def construct_cycle_dataset(m, start_node=0, end=1, start=0, sz=10):
         data = nx_to_bf_instance(G, m=end, start=start)
         dataset.append(data)
     return dataset
+
+def construct_star_graph(num_edges, edges, s=0):
+    G = nx.star_graph(num_edges)
+    for i in range(1, num_edges + 1):
+        G[0][i]['weight'] = edges[i]
+    nx.set_node_attributes(G, values=1000, name='attr')
+    G.nodes[s]['attr'] = 0.0
+    return G

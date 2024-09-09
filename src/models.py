@@ -73,19 +73,22 @@ class SimpleBFLayer(MessagePassing):
 
 class SingleLayerArbitraryWidthBFLayer(MessagePassing):
     def __init__(self, 
-                 width=2, 
+                 width=2,
+                 out_features = 1,
+                 in_features = 1, 
                  bias=False, 
                  act='ReLU', 
                  l0_regularizer=False, 
                  **kwargs):
         super().__init__(aggr='min')
         self.l0 = l0_regularizer
+        # Add 1 to input features to account for edge attribute 
         if l0_regularizer:
-            self.W_1 = L0Linear(in_features=2, out_features=width, bias=bias)
-            self.W_2 = L0Linear(in_features=width, out_features=1, bias=bias)
+            self.W_1 = L0Linear(in_features=in_features + 1, out_features=width, bias=bias)
+            self.W_2 = L0Linear(in_features=width, out_features=out_features, bias=bias)
         else:
-            self.W_1 = Linear(in_features = 2, out_features = width, bias=bias)
-            self.W_2 = Linear(in_features=width, out_features=1, bias=bias)
+            self.W_1 = Linear(in_features = in_features + 1, out_features = width, bias=bias)
+            self.W_2 = Linear(in_features=width, out_features=out_features, bias=bias)
 
         # self.act = ReLU()
         self.act = globals()[act]()
@@ -136,9 +139,13 @@ class BFModel(nn.Module):
                  l0_regularizer = False, 
                  **kwargs):
         super(BFModel, self).__init__()
-        self.module_list = nn.ModuleList([SingleLayerArbitraryWidthBFLayer(width,bias=bias, act=act, l0_regularizer=l0_regularizer) for _ in range(depth)])
+        self.module_list = nn.ModuleList([SingleLayerArbitraryWidthBFLayer(width, bias=bias, act=act, l0_regularizer=l0_regularizer) for _ in range(depth)])
 
     def random_positive_init(self):
+        for layer in self.module_list:
+            layer.random_positive_init()
+    
+    def random_init(self):
         for layer in self.module_list:
             layer.random_positive_init()
 

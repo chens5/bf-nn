@@ -27,16 +27,18 @@ echo "Loss function: $loss_func"
 echo "Initialization: $init"
 echo "Layer type: $layer_type"
 echo "config file: $model_configs"
-echo "dataset size: $dataset_size"
+echo "dataset sizes: $dataset_sizes"
+echo "Learning rate: $lr"
 
 python train-simple.py --epochs $epochs \
+--lr $lr \
 --device $device \
 --log-dir $log_dir \
 --init $init \
 --loss-func $loss_func \
 --layer-type $layer_type \
---dataset-size $dataset_size \
 --model-configs $model_configs \
 --eta $eta \
 --perturb $perturb \
+--dataset-sizes $dataset_sizes \
 --num-trials $2

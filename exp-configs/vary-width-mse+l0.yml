@@ -6,5 +6,5 @@ loss_func: l0_regularized_loss
 model_configs: model-configs/configs4.yaml
 layer_type: BFModel
 dataset_size: auto
-eta: 0.01
+eta: 0.0001
 perturb: 1
