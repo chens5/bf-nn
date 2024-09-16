@@ -151,6 +151,7 @@ def main():
     parser.add_argument('--layer-type', type=str, default='BFModel')
     parser.add_argument('--perturb', type=int)
     parser.add_argument('--dataset-sizes', type=int, nargs='+')
+    parser.add_argument('--search-eta-lr', type=int)
 
     args = parser.parse_args()
 
@@ -159,78 +160,89 @@ def main():
         model_configs = yaml.safe_load(file)
 
     perturb = True if args.perturb == 1 else False
+    if args.search_eta_lr and args.loss_func != 'mean_squared_error_loss':
+        pairs = []
+        for eta in [0.001, 0.01, 0.10, 1.0]:
+            for lr in [0.01, 0.10, 1.0, 1.1]:
+                pairs.append((lr, eta))
+    elif args.search_eta_lr:
+        pairs = []
+        for lr in [0.10, 1.0, 1.1]:
+            pairs.append((lr, 0))
+    else:
+        pairs = [(args.lr, args.eta)]
 
-    for model in model_configs:
-        cfg = model_configs[model]
-        if cfg['bias']:
-            bias_for_log_dir='bias'
-        else:
-            bias_for_log_dir='no-bias'
-        activation = cfg['act']
-        width = cfg['width']
-        depth = cfg['depth']
-        #dataset_sizes = [4, 8, 16, 32, 64]
-        dataset_sizes = args.dataset_sizes
-        for sz in dataset_sizes:
-            dstr = f'ds-{sz}-per' if perturb else f'ds-{sz}'
-            if 'regularized' in args.loss_func:
-                log_dir = os.path.join(args.log_dir,
-                                        args.layer_type,
-                                        activation,
-                                        args.loss_func,
-                                        f'lr-{args.lr}',
-                                        f'eta-{args.eta}', 
-                                        args.init,
-                                        model,
-                                        bias_for_log_dir,
-                                        dstr )
+    for lr_eta_pair in pairs:
+        lr = lr_eta_pair[0]
+        eta = lr_eta_pair[1]
+        for model in model_configs:
+            cfg = model_configs[model]
+            if cfg['bias']:
+                bias_for_log_dir='bias'
             else:
-                log_dir = os.path.join(args.log_dir,
-                                        args.layer_type,
-                                        activation,
-                                        args.loss_func,
-                                        f'lr-{args.lr}',  
-                                        args.init,
-                                        model,
-                                        bias_for_log_dir,
-                                        dstr )
-            f = []
-            for (dirpath, dirnames, filenames) in os.walk(log_dir):
-                f.extend([int(name) for name in dirnames])
-                break
-            cur_trial = 0
-            if len(f) > 0:
-                
-                cur_trial = max(f) + 1
+                bias_for_log_dir='no-bias'
+            activation = cfg['act']
+            dataset_sizes = args.dataset_sizes
+            for sz in dataset_sizes:
+                dstr = f'ds-{sz}-per' if perturb else f'ds-{sz}'
+                if 'regularized' in args.loss_func:
+                    log_dir = os.path.join(args.log_dir,
+                                            args.layer_type,
+                                            activation,
+                                            args.loss_func,
+                                            f'lr-{lr}',
+                                            f'eta-{eta}', 
+                                            args.init,
+                                            model,
+                                            bias_for_log_dir,
+                                            dstr )
+                else:
+                    log_dir = os.path.join(args.log_dir,
+                                            args.layer_type,
+                                            activation,
+                                            args.loss_func,
+                                            f'lr-{lr}',  
+                                            args.init,
+                                            model,
+                                            bias_for_log_dir,
+                                            dstr )
+                f = []
+                for (dirpath, dirnames, filenames) in os.walk(log_dir):
+                    f.extend([int(name) for name in dirnames])
+                    break
+                cur_trial = 0
+                if len(f) > 0:
+                    
+                    cur_trial = max(f) + 1
 
-            for i in range(cur_trial, cur_trial + args.num_trials):
-                trial = str(i)
-                record_dir = os.path.join(log_dir, trial)
-                
-                if not os.path.exists(record_dir):
-                    os.makedirs(record_dir)
-                print("Logging to: ",  record_dir)
+                for i in range(cur_trial, cur_trial + args.num_trials):
+                    trial = str(i)
+                    record_dir = os.path.join(log_dir, trial)
+                    
+                    if not os.path.exists(record_dir):
+                        os.makedirs(record_dir)
+                    print("Logging to: ",  record_dir)
 
-                dataset = construct_small_graph_dataset(sz, inject_non_zero=perturb)
-                if perturb:
-                    save_dataset = os.path.join(log_dir, 'train_dataset.pt')
-                    torch.save(dataset, save_dataset)
-                #dataset = construct_m_path_dataset(depth + 1, sz=args.dataset_size)
-                print("Size of dataset", len(dataset))
-                batch_sz = len(dataset)
-                train_dataloader = DataLoader(dataset, batch_size = batch_sz, shuffle=True)
+                    dataset = construct_small_graph_dataset(sz, inject_non_zero=perturb)
+                    if perturb:
+                        save_dataset = os.path.join(log_dir, 'train_dataset.pt')
+                        torch.save(dataset, save_dataset)
+                    #dataset = construct_m_path_dataset(depth + 1, sz=args.dataset_size)
+                    print("Size of dataset", len(dataset))
+                    batch_sz = len(dataset)
+                    train_dataloader = DataLoader(dataset, batch_size = batch_sz, shuffle=True)
 
-                train_simple(train_dataloader=train_dataloader,
-                            cfg=cfg,
-                            epochs=args.epochs,
-                            loss_func = args.loss_func,
-                            device=args.device,
-                            log_dir=record_dir,
-                            lr=args.lr,
-                            save_freq=50,
-                            init = args.init, 
-                            layer=args.layer_type, 
-                            eta=args.eta)
+                    train_simple(train_dataloader=train_dataloader,
+                                cfg=cfg,
+                                epochs=args.epochs,
+                                loss_func = args.loss_func,
+                                device=args.device,
+                                log_dir=record_dir,
+                                lr=lr,
+                                save_freq=args.epochs//2000,
+                                init = args.init, 
+                                layer=args.layer_type, 
+                                eta=eta)
 
 if __name__=='__main__':
     main()

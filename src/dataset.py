@@ -161,3 +161,14 @@ def construct_star_graph(num_edges, edges, s=0):
     nx.set_node_attributes(G, values=1000, name='attr')
     G.nodes[s]['attr'] = 0.0
     return G
+
+def construct_complete_graph(num_nodes,low=1.0, high=2.0, s=0):
+    G = nx.complete_graph(num_nodes)
+    for e in G.edges:
+        v1 = e[0]
+        v2 = e[1]
+        G[v1][v2]['weight'] = np.random.uniform(low=low, high=high)
+    nx.set_node_attributes(G, values=1000, name='attr')
+    G.nodes[s]['attr'] = 0.0
+    return G
+

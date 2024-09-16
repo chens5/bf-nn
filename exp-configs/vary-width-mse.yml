@@ -5,7 +5,8 @@ init: random-positive-init
 loss_func: mean_squared_error_loss
 model_configs: model-configs/configs4.yaml
 layer_type: BFModel
-dataset_sizes: 4 16 64
+dataset_sizes: 128
 eta: 0.01
 perturb: 1
-lr: 0.01
+lr: 0.001
+search_eta_lr: 0

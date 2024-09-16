@@ -9,3 +9,4 @@ dataset_sizes: 4 16 64
 eta: 0.001
 perturb: 1
 lr: 0.001
+search_eta_lr: 1

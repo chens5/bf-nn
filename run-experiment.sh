@@ -29,6 +29,7 @@ echo "Layer type: $layer_type"
 echo "config file: $model_configs"
 echo "dataset sizes: $dataset_sizes"
 echo "Learning rate: $lr"
+echo "Search over learning rate and eta: $search_eta_lr"
 
 python train-simple.py --epochs $epochs \
 --lr $lr \
@@ -41,4 +42,5 @@ python train-simple.py --epochs $epochs \
 --eta $eta \
 --perturb $perturb \
 --dataset-sizes $dataset_sizes \
+--search-eta-lr $search_eta_lr \
 --num-trials $2

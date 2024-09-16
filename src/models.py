@@ -3,6 +3,35 @@ from torch.nn import Linear, Parameter, ReLU, LeakyReLU
 import torch.nn as nn
 from torch_geometric.nn import MessagePassing
 from torch_geometric.utils import add_self_loops, degree
+import copy
+
+def initialize_mlp(input, hidden, output, layers, activation='relu', **kwargs):
+    if layers == 1:
+        hidden=output
+    if activation == 'relu':
+        func = nn.ReLU
+    elif activation =='lrelu':
+        func = nn.LeakyReLU
+    elif activation=='sigmoid':
+        func = nn.Sigmoid
+    elif activation =='softplus':
+        func = nn.Softplus
+    else:
+        raise NameError('Not implemented')
+
+    phi_layers= []
+    phi_layers.append(nn.Linear(input, hidden))
+    phi_layers.append(func())
+    
+    for i in range(layers - 1):
+        if i < layers - 2:
+            phi_layers.append(nn.Linear(hidden, hidden))
+            phi_layers.append(func())
+        else:
+            phi_layers.append(nn.Linear(hidden, output))
+
+    phi = nn.Sequential(*phi_layers)
+    return phi
 
 class L0Linear(nn.Module):
     def __init__(self, in_features, out_features, epsilon_param=1.0, bias=True):
@@ -84,7 +113,7 @@ class SingleLayerArbitraryWidthBFLayer(MessagePassing):
         self.l0 = l0_regularizer
         # Add 1 to input features to account for edge attribute 
         if l0_regularizer:
-            self.W_1 = L0Linear(in_features=in_features + 1, out_features=width, bias=bias)
+            self.W_1 = L0Linear(in_features= in_features + 1, out_features=width, bias=bias)
             self.W_2 = L0Linear(in_features=width, out_features=out_features, bias=bias)
         else:
             self.W_1 = Linear(in_features = in_features + 1, out_features = width, bias=bias)
@@ -147,8 +176,58 @@ class BFModel(nn.Module):
     
     def random_init(self):
         for layer in self.module_list:
-            layer.random_positive_init()
+            layer.random_init()
 
+    def forward(self, x, edge_index, edge_attr):
+        for layer in self.module_list:            
+            x = layer(x=x, edge_index=edge_index, edge_attr=edge_attr)
+        return x
+
+class SingleSkipLayer(MessagePassing):
+    def __init__(self, aggregation_config, update_config, act = 'ReLU' , **kwargs ):
+        super(SingleSkipLayer, self).__init__()
+
+        self.aggregation_layer = initialize_mlp(**aggregation_config)
+         
+        self.update_layer = initialize_mlp(**update_config)
+        self.act = globals()[act]()
+
+    def forward(self, x, edge_index, edge_attr):
+        from_aggregation = self.propagate(edge_index, x=x, edge_attr=edge_attr)
+        update_ = torch.cat((from_aggregation, x), dim=1)
+
+        return self.act(self.update_layer(self.propagate(edge_index, x=x, edge_attr=edge_attr)))
+    
+    def message(self, x_j, edge_attr):
+        return self.act(self.aggregation_layer(torch.cat((x_j, edge_attr), dim=-1)))
+
+class SingleSkipBFModel(nn.Module):
+    def __init__(self, 
+                 initial_aggregation_config, 
+                 aggregation_config,
+                 update_config, 
+                 depth, 
+                 bias=True, 
+                 act='ReLU', 
+                 l0_regularizer = False, 
+                 **kwargs):
+        super(SingleSkipBFModel, self).__init__()
+        # Safety checks
+        # (1) check that input for update MLP accounts for residual 
+        assert 2 * aggregation_config['output'] == update_config['input'] and 2 * initial_aggregation_config['output'] == update_config['input']
+        # account for edge features
+        assert initial_aggregation_config['input'] == 2 
+        assert aggregation_config['input'] == update_config['output'] + 1 
+
+        final_update_cfg = copy.deepcopy(update_config)
+        final_update_cfg['output'] = 1
+        lst = []
+        lst.append(SingleSkipLayer(initial_aggregation_config, update_config))
+        for i in range(depth - 2): 
+            lst.append(SingleSkipLayer(aggregation_config, update_config))
+        lst.append(SingleSkipLayer(aggregation_config, final_update_cfg))
+        self.module_list = nn.ModuleList(*lst)
+    
     def forward(self, x, edge_index, edge_attr):
         for layer in self.module_list:            
             x = layer(x=x, edge_index=edge_index, edge_attr=edge_attr)
