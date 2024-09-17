@@ -194,9 +194,10 @@ class SingleSkipLayer(MessagePassing):
 
     def forward(self, x, edge_index, edge_attr):
         from_aggregation = self.propagate(edge_index, x=x, edge_attr=edge_attr)
+        print(from_aggregation.size())
         update_ = torch.cat((from_aggregation, x), dim=1)
-
-        return self.act(self.update_layer(self.propagate(edge_index, x=x, edge_attr=edge_attr)))
+        print(update_.size())
+        return self.act(self.update_layer(update_))
     
     def message(self, x_j, edge_attr):
         return self.act(self.aggregation_layer(torch.cat((x_j, edge_attr), dim=-1)))
@@ -212,23 +213,28 @@ class SingleSkipBFModel(nn.Module):
                  l0_regularizer = False, 
                  **kwargs):
         super(SingleSkipBFModel, self).__init__()
-        # Safety checks
-        # (1) check that input for update MLP accounts for residual 
-        assert 2 * aggregation_config['output'] == update_config['input'] and 2 * initial_aggregation_config['output'] == update_config['input']
-        # account for edge features
-        assert initial_aggregation_config['input'] == 2 
-        assert aggregation_config['input'] == update_config['output'] + 1 
 
         final_update_cfg = copy.deepcopy(update_config)
         final_update_cfg['output'] = 1
         lst = []
+        # aggregation_config['input'] - 1 = previous node feature dimension
+        # add these two quantities to get the input for each update configuration. 
+        update_config['input'] = initial_aggregation_config['input'] - 1 + initial_aggregation_config['output']
         lst.append(SingleSkipLayer(initial_aggregation_config, update_config))
         for i in range(depth - 2): 
+            update_config['input'] = aggregation_config['input'] - 1 + aggregation_config['output']
             lst.append(SingleSkipLayer(aggregation_config, update_config))
         lst.append(SingleSkipLayer(aggregation_config, final_update_cfg))
-        self.module_list = nn.ModuleList(*lst)
-    
+        self.module_list = nn.ModuleList(lst)
+
+        self.act = globals()[act]()
+
+    def random_init(self):
+        pass
+
+    def random_positive_init(self):
+        pass
     def forward(self, x, edge_index, edge_attr):
         for layer in self.module_list:            
-            x = layer(x=x, edge_index=edge_index, edge_attr=edge_attr)
+            x =layer(x=x, edge_index=edge_index, edge_attr=edge_attr)
         return x

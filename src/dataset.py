@@ -47,14 +47,6 @@ def m_step_bf_instance(G, m, start=0, start_node=0):
         nx.set_node_attributes(G, temp)
     return temp, start_dict
 
-def construct_k_path(k, edge_weights, s=0):
-    G = nx.path_graph(k)
-    for i in range(len(edge_weights)):
-        G[i][i + 1]['weight'] = edge_weights[i]
-    nx.set_node_attributes(G, values=1000, name='attr')
-    G.nodes[s]['attr'] = 0.0
-    return G
-
 def pyg_to_nx(pyg_graph):
     raise NotImplementedError("implementation coming...")
 
@@ -65,7 +57,7 @@ def nx_to_bf_instance(G, m, start=0):
     final_node_features = np.zeros(len(G.nodes))
 
     final_bf_m_attrs, start_bf_m_attrs = m_step_bf_instance(G, m, start=start)
-
+    
     for e in G.edges:
         edge_index[0].append(e[0])
         edge_index[1].append(e[1])
@@ -75,7 +67,7 @@ def nx_to_bf_instance(G, m, start=0):
 
         edge_attr.append(G[e[0]][e[1]]['weight'])
         edge_attr.append(G[e[0]][e[1]]['weight'])
-    
+
     for node in G.nodes:
         init_node_features[node] = start_bf_m_attrs[node]['attr']
         final_node_features[node] = final_bf_m_attrs[node]['attr']
@@ -107,6 +99,46 @@ def construct_small_graph_dataset(size, inject_non_zero = False):
         dataset.append(data)
     return dataset
 
+def construct_full_cross_dataset(path_length, cross_w_1, cross_w_2):
+    dataset = []
+    for j in range(path_length ):
+        edge_weights = np.abs( np.random.normal(loc=0.0, scale=1.0, size=path_length + 1))
+        H = construct_cross(path_length , edge_weights, j, cross_w_1)
+        H_bar = construct_cross(path_length , edge_weights, j, cross_w_2)
+        num_nodes = len(H.nodes)
+
+        data_H  = nx_to_bf_instance(H, num_nodes, start=0)
+        dataset.append(data_H)
+        #print(data_H.edge_index)
+
+        data_H_bar = nx_to_bf_instance(H_bar, num_nodes, start=0)
+        dataset.append(data_H_bar)
+        #print(data_H_bar.edge_index)
+    return dataset
+
+
+def construct_ktrain_dataset(K, sz=5):
+    dataset = []
+    
+    calc_total = 2 * (K * (K + 1)/2) + 2 * K 
+    runs = int(sz / calc_total) + 1
+    for _ in range(runs):
+        for i in trange(1, K + 1):
+            cross_data = construct_full_cross_dataset(i, [0, 0], [1, 1])
+            dataset.extend(cross_data)
+            edge_weights = np.abs( np.random.normal(loc=0.0, scale=1.0, size=i + 1))
+            dual_path = construct_two_paths(i + 1, edge_weights)
+            data = nx_to_bf_instance(dual_path, i + 1)
+            
+            dataset.append(data)
+            ew = np.zeros(i)
+            
+            ew[0] = np.random.uniform(low=1.0, high=30.0)
+            path = construct_k_path(i + 1, ew)
+            data = nx_to_bf_instance(path, i)
+            dataset.append(data)
+    return dataset
+
 def construct_m_path_dataset(m, sz=5):
     dataset = []
     for k in range(1, m):
@@ -136,14 +168,7 @@ def construct_random_path_dataset(m, start_node=0, end=1, start = 0, sz=10):
         dataset.append(data)
     return dataset
 
-def construct_k_cycle(k, edge_weights, s=0):
-    G = nx.cycle_graph(k)
-    for i in range(len(edge_weights) - 1):
-        G[i][i + 1]['weight'] = edge_weights[i]
-    G[k - 1][0]['weight'] = edge_weights[k - 1]
-    nx.set_node_attributes(G, values=200, name='attr')
-    G.nodes[s]['attr'] = 0.0
-    return G
+
 
 def construct_cycle_dataset(m, start_node=0, end=1, start=0, sz=10):
     dataset = []
@@ -153,6 +178,30 @@ def construct_cycle_dataset(m, start_node=0, end=1, start=0, sz=10):
         data = nx_to_bf_instance(G, m=end, start=start)
         dataset.append(data)
     return dataset
+
+
+### Graph constructors
+
+def construct_cross(num_edges, edges, cross_idx, cross_edge_weights, s=0):
+    G = nx.Graph()
+    for i in range(num_edges):
+        G.add_edge(i, i+1, weight = edges[i])
+        G.add_edge(num_edges+i , num_edges+i + 1, weight=edges[i])
+    
+    G.add_edge(cross_idx, num_edges+cross_idx+1, weight=cross_edge_weights[0])
+    G.add_edge(cross_idx + 1, num_edges + cross_idx, weight=cross_edge_weights[0])
+    nx.set_node_attributes(G, values=1000, name='attr')
+    G.nodes[s]['attr'] = 0.0
+    return G
+
+def construct_two_paths(num_edges, edges, s=0):
+    G = nx.Graph()
+    for i in range(num_edges):
+        G.add_edge(i, i+1, weight = edges[i])
+        G.add_edge(num_edges+i , num_edges+i + 1, weight=edges[i])
+    nx.set_node_attributes(G, values=1000, name='attr')
+    G.nodes[s]['attr'] = 0.0
+    return G
 
 def construct_star_graph(num_edges, edges, s=0):
     G = nx.star_graph(num_edges)
@@ -172,3 +221,19 @@ def construct_complete_graph(num_nodes,low=1.0, high=2.0, s=0):
     G.nodes[s]['attr'] = 0.0
     return G
 
+def construct_k_cycle(k, edge_weights, s=0):
+    G = nx.cycle_graph(k)
+    for i in range(len(edge_weights) - 1):
+        G[i][i + 1]['weight'] = edge_weights[i]
+    G[k - 1][0]['weight'] = edge_weights[k - 1]
+    nx.set_node_attributes(G, values=1000, name='attr')
+    G.nodes[s]['attr'] = 0.0
+    return G
+
+def construct_k_path(k, edge_weights, s=0):
+    G = nx.path_graph(k)
+    for i in range(len(edge_weights)):
+        G[i][i + 1]['weight'] = edge_weights[i]
+    nx.set_node_attributes(G, values=1000, name='attr')
+    G.nodes[s]['attr'] = 0.0
+    return G

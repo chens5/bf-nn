@@ -143,10 +143,10 @@ def main():
     parser.add_argument('--device', type=str)
     parser.add_argument('--log-dir', type=str)
     parser.add_argument('--num-trials', type=int)
-    parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--lr', type=float, nargs='+')
     parser.add_argument('--init', type=str, default='random-init')
     parser.add_argument('--loss-func', type=str, default='mean_squared_error_loss')
-    parser.add_argument('--eta', type=float, default=0.10)
+    parser.add_argument('--eta', type=float, nargs='+')
     parser.add_argument('--model-configs', type=str)
     parser.add_argument('--layer-type', type=str, default='BFModel')
     parser.add_argument('--perturb', type=int)
@@ -160,17 +160,15 @@ def main():
         model_configs = yaml.safe_load(file)
 
     perturb = True if args.perturb == 1 else False
-    if args.search_eta_lr and args.loss_func != 'mean_squared_error_loss':
+    if args.loss_func != 'mean_squared_error_loss':
         pairs = []
-        for eta in [0.001, 0.01, 0.10, 1.0]:
-            for lr in [0.01, 0.10, 1.0, 1.1]:
+        for eta in args.eta:
+            for lr in args.lr:
                 pairs.append((lr, eta))
-    elif args.search_eta_lr:
-        pairs = []
-        for lr in [0.10, 1.0, 1.1]:
-            pairs.append((lr, 0))
     else:
-        pairs = [(args.lr, args.eta)]
+        pairs = []
+        for lr in args.lr:
+            pairs.append((lr, 0))
 
     for lr_eta_pair in pairs:
         lr = lr_eta_pair[0]
@@ -212,7 +210,6 @@ def main():
                     break
                 cur_trial = 0
                 if len(f) > 0:
-                    
                     cur_trial = max(f) + 1
 
                 for i in range(cur_trial, cur_trial + args.num_trials):
@@ -222,8 +219,11 @@ def main():
                     if not os.path.exists(record_dir):
                         os.makedirs(record_dir)
                     print("Logging to: ",  record_dir)
-
-                    dataset = construct_small_graph_dataset(sz, inject_non_zero=perturb)
+                    if args.layer_type == 'SingleSkipBFModel':
+                        K = cfg['depth']
+                        dataset = construct_ktrain_dataset(K, sz=sz)
+                    else:
+                        dataset = construct_small_graph_dataset(sz, inject_non_zero=perturb)
                     if perturb:
                         save_dataset = os.path.join(log_dir, 'train_dataset.pt')
                         torch.save(dataset, save_dataset)
