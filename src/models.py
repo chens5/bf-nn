@@ -194,10 +194,8 @@ class SingleSkipLayer(MessagePassing):
 
     def forward(self, x, edge_index, edge_attr):
         from_aggregation = self.propagate(edge_index, x=x, edge_attr=edge_attr)
-        print(from_aggregation.size())
         update_ = torch.cat((from_aggregation, x), dim=1)
-        print(update_.size())
-        return self.act(self.update_layer(update_))
+        return self.update_layer(update_)
     
     def message(self, x_j, edge_attr):
         return self.act(self.aggregation_layer(torch.cat((x_j, edge_attr), dim=-1)))
@@ -215,6 +213,7 @@ class SingleSkipBFModel(nn.Module):
         super(SingleSkipBFModel, self).__init__()
 
         final_update_cfg = copy.deepcopy(update_config)
+        final_update_cfg['input'] = aggregation_config['input'] - 1 + aggregation_config['output']
         final_update_cfg['output'] = 1
         lst = []
         # aggregation_config['input'] - 1 = previous node feature dimension
@@ -235,6 +234,13 @@ class SingleSkipBFModel(nn.Module):
     def random_positive_init(self):
         pass
     def forward(self, x, edge_index, edge_attr):
-        for layer in self.module_list:            
-            x =layer(x=x, edge_index=edge_index, edge_attr=edge_attr)
+        count = 0
+        for i in range(len(self.module_list)):
+            layer = self.module_list[i] 
+
+            if i < len(self.module_list) - 1:           
+                x =self.act(layer(x=x, edge_index=edge_index, edge_attr=edge_attr))
+            else: 
+                x =layer(x=x, edge_index=edge_index, edge_attr=edge_attr)
+            count += 1
         return x

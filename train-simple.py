@@ -182,7 +182,12 @@ def main():
             activation = cfg['act']
             dataset_sizes = args.dataset_sizes
             for sz in dataset_sizes:
-                dstr = f'ds-{sz}-per' if perturb else f'ds-{sz}'
+                if args.layer_type == 'SingleSkipBFModel':
+                    K = cfg['depth']
+                    size = 2 * (K * (K + 1)/2) + 2 * K 
+                else:
+                    size = sz
+                dstr = f'ds-{size}-per' if perturb else f'ds-{size}'
                 if 'regularized' in args.loss_func:
                     log_dir = os.path.join(args.log_dir,
                                             args.layer_type,
@@ -222,11 +227,11 @@ def main():
                     if args.layer_type == 'SingleSkipBFModel':
                         K = cfg['depth']
                         dataset = construct_ktrain_dataset(K, sz=sz)
+                        print('size of dataset:', len(dataset))
                     else:
                         dataset = construct_small_graph_dataset(sz, inject_non_zero=perturb)
-                    if perturb:
-                        save_dataset = os.path.join(log_dir, 'train_dataset.pt')
-                        torch.save(dataset, save_dataset)
+                    save_dataset = os.path.join(log_dir, 'train_dataset.pt')
+                    torch.save(dataset, save_dataset)
                     #dataset = construct_m_path_dataset(depth + 1, sz=args.dataset_size)
                     print("Size of dataset", len(dataset))
                     batch_sz = len(dataset)
