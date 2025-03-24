@@ -174,6 +174,14 @@ class BFModel(nn.Module):
         for layer in self.module_list:
             layer.random_positive_init()
     
+    def get_model_parameters(self):
+        W1s = []
+        W2s = []
+        b1s = []
+        b2s = []
+
+        return W1s, W2s, b1s, b2s
+
     def random_init(self):
         for layer in self.module_list:
             layer.random_init()
@@ -183,9 +191,34 @@ class BFModel(nn.Module):
             x = layer(x=x, edge_index=edge_index, edge_attr=edge_attr)
         return x
 
+class DeepBFModel(nn.Module):
+    def __init__(self, 
+                 width, 
+                 depth, 
+                 bias=True, 
+                 act='ReLU', 
+                 l0_regularizer = False, 
+                 **kwargs):
+        super(DeepBFModel, self).__init__()
+        self.module_list = nn.ModuleList([SingleLayerArbitraryWidthBFLayer(width, bias=bias, act=act, l0_regularizer=l0_regularizer) for _ in range(depth)])
+
+    def random_positive_init(self):
+        for layer in self.module_list:
+            layer.random_positive_init()
+    
+    def random_init(self):
+        for layer in self.module_list:
+            layer.random_init()
+
+    def forward(self, x, edge_index, edge_attr):
+        for layer in self.module_list:            
+            x = layer(x=x, edge_index=edge_index, edge_attr=edge_attr)
+        return x
+
+
 class SingleSkipLayer(MessagePassing):
     def __init__(self, aggregation_config, update_config, act = 'ReLU' , **kwargs ):
-        super(SingleSkipLayer, self).__init__()
+        super(SingleSkipLayer, self).__init__(aggr='min')
 
         self.aggregation_layer = initialize_mlp(**aggregation_config)
          
@@ -213,7 +246,7 @@ class SingleSkipBFModel(nn.Module):
         super(SingleSkipBFModel, self).__init__()
 
         final_update_cfg = copy.deepcopy(update_config)
-        final_update_cfg['input'] = aggregation_config['input'] - 1 + aggregation_config['output']
+        final_update_cfg['input'] = aggregation_config['input'] - 1 + aggregation_config['output'] # -1 for edge feature
         final_update_cfg['output'] = 1
         lst = []
         # aggregation_config['input'] - 1 = previous node feature dimension
@@ -221,7 +254,9 @@ class SingleSkipBFModel(nn.Module):
         update_config['input'] = initial_aggregation_config['input'] - 1 + initial_aggregation_config['output']
         lst.append(SingleSkipLayer(initial_aggregation_config, update_config))
         for i in range(depth - 2): 
-            update_config['input'] = aggregation_config['input'] - 1 + aggregation_config['output']
+            update_config['input'] = aggregation_config['input'] - 1 + aggregation_config['output'] # -1 for edge feature
+            print("aggregation", aggregation_config)
+            print("update", update_config)
             lst.append(SingleSkipLayer(aggregation_config, update_config))
         lst.append(SingleSkipLayer(aggregation_config, final_update_cfg))
         self.module_list = nn.ModuleList(lst)
@@ -233,6 +268,7 @@ class SingleSkipBFModel(nn.Module):
 
     def random_positive_init(self):
         pass
+    
     def forward(self, x, edge_index, edge_attr):
         count = 0
         for i in range(len(self.module_list)):

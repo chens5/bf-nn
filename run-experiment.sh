@@ -28,6 +28,7 @@ echo "Initialization: $init"
 echo "Layer type: $layer_type"
 echo "config file: $model_configs"
 echo "dataset sizes: $dataset_sizes"
+echo "regularization parameters: $eta"
 echo "Learning rate: $lr"
 echo "Search over learning rate and eta: $search_eta_lr"
 
@@ -43,4 +44,5 @@ python train-simple.py --epochs $epochs \
 --perturb $perturb \
 --dataset-sizes $dataset_sizes \
 --search-eta-lr $search_eta_lr \
+--dataset-type $dataset_type \
 --num-trials $2

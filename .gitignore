@@ -29,12 +29,15 @@ share/python-wheels/
 *.egg
 MANIFEST
 *.yaml
+*.yml
 configs/
 experiment-configs/
 output/
 images/
 *.ipynb
 *.pyc
+wandb/
+*.pdf
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

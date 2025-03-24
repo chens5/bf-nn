@@ -59,3 +59,22 @@ def get_model_error(model, dataset):
         maes.append(mae_per_graph)
         mres.append(mre_per_graph)
     return maes, mres, output
+
+def convert_clrs_to_pyg(file):
+    data = np.load(file)
+    graph_data = data['graph_data']
+    outputs = data['out']
+    sources = data['source']
+    pyg_instances = []
+    networkx_graphs = []
+    for i in range(len(graph_data)):
+        adj_matrix = graph_data[i]
+        adj_matrix[np.arange(64), np.arange(64)] = 0.0
+        src = sources[i]
+        graph = nx.from_numpy_array(adj_matrix)
+        networkx_graphs.append(graph)
+        nx.set_node_attributes(graph, values=START_VAL, name='attr')
+        graph.nodes[src]['attr'] = 0.0
+        pyg_instances.append(nx_to_pyg(graph))
+
+    return pyg_instances, networkx_graphs, outputs

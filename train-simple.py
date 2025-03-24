@@ -10,34 +10,27 @@ import torch
 import torch.nn as nn
 
 from torch_geometric.loader import DataLoader
-from torch.utils.tensorboard.writer import SummaryWriter
 from torch_geometric.transforms import ToSparseTensor, VirtualNode, ToUndirected
 from torch_geometric.nn import to_hetero
 import yaml
 import os
 import csv
 import logging
+import wandb
 
 import time
 
 def mean_squared_error_loss(out, batch, **kwargs):
-    return torch.mean(torch.square(out- batch.y))
+    return torch.mean(torch.square(out- batch.y)), 0.0
 
 def sum_squared_error_loss(out, batch, **kwargs):
-    return torch.sum(torch.square(out - batch.y))
+    return torch.sum(torch.square(out - batch.y)), 0.0
 
 def absolute_error(out, batch, **kwargs):
-    return torch.sum(torch.abs(out - batch.y))
+    return torch.sum(torch.abs(out - batch.y)), 0.0
 
 def mean_absolute_error(out, batch, **kwargs):
-    return torch.mean(torch.abs(out-batch.y))
-
-# def l1_regularization_term(model):
-#     l1_regularization = 0.
-
-#     for param in model.parameters():
-#         l1_regularization += param.abs().sum()
-#     return l1_regularization
+    return torch.mean(torch.abs(out-batch.y)), 0.0
 
 def reg_term(model, p):
     reg = 0.
@@ -45,10 +38,11 @@ def reg_term(model, p):
         reg += torch.pow(param.abs(), p).sum()
     return reg
 
-
-
 def l1_regularized_loss(out, batch, gnn=None, eta=0.1):
     return torch.sum(torch.square(out - batch.y)), eta * reg_term(gnn, 1)
+
+def mean_absolute_error_l1(out, batch, gnn=None, eta=0.1):
+    return torch.sum(torch.abs(out - batch.y)), eta * reg_term(gnn, 1)
 
 def l0_regularized_loss(out, batch, gnn=None, eta=0.1):
     assert gnn.module_list[0].l0 == True
@@ -71,8 +65,12 @@ def train_simple(train_dataloader,
                  save_freq=100,
                  init='random-init',
                  layer="SimpleBFLayer", 
-                 eta=0.1):
+                 eta=0.1,
+                 dataset_name='path-2-3',
+                 dataset_size=8):
     print(cfg)
+
+    
     if loss_func == 'l0_regularized_loss':
         gnn = globals()[layer](l0_regularizer=True, **cfg)
     else:
@@ -82,16 +80,16 @@ def train_simple(train_dataloader,
         gnn.random_init()
     elif init == 'random-positive-init':
         gnn.random_positive_init()
-
+    # print(gnn.module_list[0].aggregation_layer)
+    # print(gnn.module_list[0].update_layer)
+    # print(gnn.module_list[1].aggregation_layer)
+    # print(gnn.module_list[1].update_layer)
     gnn = gnn.to(device)
     optimizer = AdamW(gnn.parameters(), lr=lr)
     record_dir = os.path.join(log_dir, 'record/')
 
     if not os.path.exists(record_dir):
         os.makedirs(record_dir)
-
-    # initialize tensorboard writer
-    writer = SummaryWriter(log_dir=record_dir)
 
     # Logging training information
     log_file = os.path.join(record_dir, 'training_log.log')
@@ -102,31 +100,39 @@ def train_simple(train_dataloader,
     logging.info("GNN model configuration:")
     logging.info(gnn)
 
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="bellman-ford-nn",
+        dir='/data/sam/wandb',
+        # track hyperparameters and run metadata
+        config={
+        "learning_rate": lr,
+        "architecture": layer,
+        "dataset": dataset_name,
+        "dataset_size": dataset_size, 
+        "epochs": epochs,
+        "model_configuration": cfg,
+        "loss_function": loss_func, 
+        "eta": eta
+        }
+    )
+
     path = os.path.join(record_dir, 'initial_model.pt')
     torch.save({'gnn_state_dict': gnn.state_dict()},
                 path)
 
     for epoch in trange(epochs):
-        loss_per_epoch = 0.0
         for batch in train_dataloader:
             optimizer.zero_grad()
             batch.to(device)
             out = gnn(batch.x, batch.edge_index, batch.edge_attr)
-            if 'regularized' in loss_func:
-                mse_loss, reg_loss = globals()[loss_func](out, batch, gnn=gnn, eta=eta)
-                loss = mse_loss+reg_loss
-            else:
-                loss = globals()[loss_func](out, batch, gnn=gnn, eta=eta)
+            mse_loss, reg_loss = globals()[loss_func](out, batch, gnn=gnn, eta=eta)
+            loss = mse_loss+reg_loss
 
-            loss_per_epoch = loss.detach()
             loss.backward()
             optimizer.step()
-
-        if 'regularized' in loss_func:
-            writer.add_scalar('train/reg_loss', reg_loss.detach(), epoch)
-            writer.add_scalar('train/mse_loss', mse_loss.detach(), epoch)
-        else:
-            writer.add_scalar('train/training_loss', loss_per_epoch, epoch)
+        reg = reg_loss.detach() if loss_func == 'l1_regularized_loss' else reg_loss
+        wandb.log({'regularization': reg, 'mse': mse_loss.detach(), 'total_loss': loss.detach()})
 
         if epoch % save_freq == 0:
             path = os.path.join(record_dir, f'model_{epoch}.pt')
@@ -152,6 +158,7 @@ def main():
     parser.add_argument('--perturb', type=int)
     parser.add_argument('--dataset-sizes', type=int, nargs='+')
     parser.add_argument('--search-eta-lr', type=int)
+    parser.add_argument('--dataset-type', type=str)
 
     args = parser.parse_args()
 
@@ -170,9 +177,11 @@ def main():
         for lr in args.lr:
             pairs.append((lr, 0))
 
+    # Loop through all learning rate and regularization parameter pairs
     for lr_eta_pair in pairs:
         lr = lr_eta_pair[0]
         eta = lr_eta_pair[1]
+        # Go through all relevant model configurations
         for model in model_configs:
             cfg = model_configs[model]
             if cfg['bias']:
@@ -181,13 +190,11 @@ def main():
                 bias_for_log_dir='no-bias'
             activation = cfg['act']
             dataset_sizes = args.dataset_sizes
+            # Go through all relevant dataset sizes
             for sz in dataset_sizes:
-                if args.layer_type == 'SingleSkipBFModel':
-                    K = cfg['depth']
-                    size = 2 * (K * (K + 1)/2) + 2 * K 
-                else:
-                    size = sz
-                dstr = f'ds-{size}-per' if perturb else f'ds-{size}'
+                K = cfg['depth']
+                dataset = globals()[args.dataset_type](K=K, size=sz, inject_non_zero=perturb, include_small=True)
+                dstr = f'{args.dataset_type}-{len(dataset)}'
                 if 'regularized' in args.loss_func:
                     log_dir = os.path.join(args.log_dir,
                                             args.layer_type,
@@ -224,15 +231,9 @@ def main():
                     if not os.path.exists(record_dir):
                         os.makedirs(record_dir)
                     print("Logging to: ",  record_dir)
-                    if args.layer_type == 'SingleSkipBFModel':
-                        K = cfg['depth']
-                        dataset = construct_ktrain_dataset(K, sz=sz)
-                        print('size of dataset:', len(dataset))
-                    else:
-                        dataset = construct_small_graph_dataset(sz, inject_non_zero=perturb)
+                    dataset = globals()[args.dataset_type](K=K, size=sz, inject_non_zero=perturb, include_small=True)
                     save_dataset = os.path.join(log_dir, 'train_dataset.pt')
                     torch.save(dataset, save_dataset)
-                    #dataset = construct_m_path_dataset(depth + 1, sz=args.dataset_size)
                     print("Size of dataset", len(dataset))
                     batch_sz = len(dataset)
                     train_dataloader = DataLoader(dataset, batch_size = batch_sz, shuffle=True)
@@ -247,7 +248,9 @@ def main():
                                 save_freq=args.epochs//2000,
                                 init = args.init, 
                                 layer=args.layer_type, 
-                                eta=eta)
+                                eta=eta, 
+                                dataset_name=args.dataset_type, 
+                                dataset_size = len(dataset))
 
 if __name__=='__main__':
     main()

@@ -1,12 +1,13 @@
 epochs: 100000
-device: cuda:3
+device: cuda:1
 log_dir: /data/sam/bf-nn
 init: random-positive-init
 loss_func: mean_squared_error_loss
-model_configs: model-configs/skip-bfmodel-configs.yaml
+model_configs: model-configs/skipbf-cfgs/w64-d-2.yml
 layer_type: SingleSkipBFModel
 dataset_sizes: 4
-eta: 0.01 0.001 0.10 1.0
+eta: 1.0
 perturb: 1
-lr: 0.01 0.001 0.10 1.0
+lr: 0.001
 search_eta_lr: 1
+dataset_type: construct_ktrain_extended

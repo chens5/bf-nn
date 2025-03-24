@@ -1,12 +1,13 @@
 epochs: 100000
-device: cuda:7
+device: cuda:1
 log_dir: /data/sam/bf-nn
-init: random-positive-init
+init: random-init
 loss_func: l1_regularized_loss
-model_configs: model-configs/configs4.yaml
+model_configs: model-configs/w-128-config.yaml
 layer_type: BFModel
-dataset_sizes: 16 64
-eta: 0.01 0.10 1.0
+dataset_sizes: 32
+eta: 0.1
 perturb: 1
-lr: 0.01 0.10 1.0
+lr: 0.001
 search_eta_lr: 1
+dataset_type: path_2_3_dataset
