@@ -41,6 +41,9 @@ def reg_term(model, p):
 def l1_regularized_loss(out, batch, gnn=None, eta=0.1):
     return torch.sum(torch.square(out - batch.y)), eta * reg_term(gnn, 1)
 
+def l2_regularized_loss(out, batch, gnn=None, eta=0.1):
+    return torch.sum(torch.square(out - batch.y)), eta * reg_term(gnn, 2)
+
 def mean_absolute_error_l1(out, batch, gnn=None, eta=0.1):
     return torch.sum(torch.abs(out - batch.y)), eta * reg_term(gnn, 1)
 
