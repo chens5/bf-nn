@@ -18,8 +18,12 @@ function parse_yaml {
 
 echo "Experiment config: $1"
 echo "Number of trials: $2"
+CONFIG=$1
+TRIAL=$2
 
-eval $(parse_yaml $1)
+shift 2
+
+eval $(parse_yaml $CONFIG)
 echo "Device: $device"
 echo "Epochs: $epochs"
 echo "Log directory: $log_dir"
@@ -45,4 +49,5 @@ python train-simple.py --epochs $epochs \
 --dataset-sizes $dataset_sizes \
 --search-eta-lr $search_eta_lr \
 --dataset-type $dataset_type \
---num-trials $2
+--num-trials $TRIAL \
+"$@"

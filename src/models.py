@@ -1,7 +1,7 @@
 import torch
 from torch.nn import Linear, Parameter, ReLU, LeakyReLU
 import torch.nn as nn
-from torch_geometric.nn import MessagePassing
+from torch_geometric.nn import MessagePassing, GATConv, GCN, GINConv, GINEConv
 from torch_geometric.utils import add_self_loops, degree
 import copy
 
@@ -108,15 +108,16 @@ class SingleLayerArbitraryWidthBFLayer(MessagePassing):
                  bias=False, 
                  act='ReLU', 
                  l0_regularizer=False, 
+                 edge_feature_dim = 1,
                  **kwargs):
         super().__init__(aggr='min')
         self.l0 = l0_regularizer
         # Add 1 to input features to account for edge attribute 
         if l0_regularizer:
-            self.W_1 = L0Linear(in_features= in_features + 1, out_features=width, bias=bias)
+            self.W_1 = L0Linear(in_features= in_features + edge_feature_dim, out_features=width, bias=bias)
             self.W_2 = L0Linear(in_features=width, out_features=out_features, bias=bias)
         else:
-            self.W_1 = Linear(in_features = in_features + 1, out_features = width, bias=bias)
+            self.W_1 = Linear(in_features = in_features + edge_feature_dim, out_features = width, bias=bias)
             self.W_2 = Linear(in_features=width, out_features=out_features, bias=bias)
 
         # self.act = ReLU()
@@ -158,7 +159,6 @@ class SingleLayerArbitraryWidthBFLayer(MessagePassing):
         return self.act(self.W_1(torch.cat((x_j, edge_attr), dim=-1)))
 
 
-
 class BFModel(nn.Module):
     def __init__(self, 
                  width, 
@@ -166,21 +166,14 @@ class BFModel(nn.Module):
                  bias=True, 
                  act='ReLU', 
                  l0_regularizer = False, 
+                 edge_feature_dim=1,
                  **kwargs):
         super(BFModel, self).__init__()
-        self.module_list = nn.ModuleList([SingleLayerArbitraryWidthBFLayer(width, bias=bias, act=act, l0_regularizer=l0_regularizer) for _ in range(depth)])
+        self.module_list = nn.ModuleList([SingleLayerArbitraryWidthBFLayer(width, bias=bias, act=act, l0_regularizer=l0_regularizer, edge_feature_dim=edge_feature_dim) for _ in range(depth)])
 
     def random_positive_init(self):
         for layer in self.module_list:
             layer.random_positive_init()
-    
-    def get_model_parameters(self):
-        W1s = []
-        W2s = []
-        b1s = []
-        b2s = []
-
-        return W1s, W2s, b1s, b2s
 
     def random_init(self):
         for layer in self.module_list:
@@ -191,28 +184,16 @@ class BFModel(nn.Module):
             x = layer(x=x, edge_index=edge_index, edge_attr=edge_attr)
         return x
 
-class DeepBFModel(nn.Module):
-    def __init__(self, 
-                 width, 
-                 depth, 
-                 bias=True, 
-                 act='ReLU', 
-                 l0_regularizer = False, 
-                 **kwargs):
-        super(DeepBFModel, self).__init__()
-        self.module_list = nn.ModuleList([SingleLayerArbitraryWidthBFLayer(width, bias=bias, act=act, l0_regularizer=l0_regularizer) for _ in range(depth)])
-
-    def random_positive_init(self):
-        for layer in self.module_list:
-            layer.random_positive_init()
-    
-    def random_init(self):
-        for layer in self.module_list:
-            layer.random_init()
+class EdgeFunctionBFModel(BFModel):
+    def __init__(self, edge_mlp_cfg, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert edge_mlp_cfg['output'] == 1 and edge_mlp_cfg['input'] == 1
+        self.edge_mlp = initialize_mlp(**edge_mlp_cfg)
 
     def forward(self, x, edge_index, edge_attr):
-        for layer in self.module_list:            
-            x = layer(x=x, edge_index=edge_index, edge_attr=edge_attr)
+        for layer in self.module_list:
+            edge_out = self.edge_mlp(edge_attr)      
+            x = layer(x=x, edge_index=edge_index, edge_attr=edge_out)
         return x
 
 
@@ -279,4 +260,78 @@ class SingleSkipBFModel(nn.Module):
             else: 
                 x =layer(x=x, edge_index=edge_index, edge_attr=edge_attr)
             count += 1
+        return x
+
+class GINLayer(nn.Module):
+    def __init__(self, input=3, output=20, eps=0.001, edge_dim=1):
+        super(GINLayer, self).__init__()
+        self.nn = nn.Sequential(nn.Linear(input, output), 
+                                nn.ReLU(),
+                                nn.Linear(output, output))
+        self.layer = GINEConv(self.nn, eps=0.001, edge_dim=edge_dim)
+
+    def forward(self, x, edge_index, edge_attr):
+        output = self.layer(x, edge_index, edge_attr)
+        return output
+
+class GCNLayer(MessagePassing):
+    def __init__(self, input, output, edge_dim, aggr='add'):
+        super(GCNLayer, self).__init__(aggr=aggr)  # "add" aggregation
+        self.layer = GCN(input, output, num_layers=1)
+    
+    def forward(self, x, edge_index, edge_attr):
+        return self.layer(x, edge_index, edge_attr)
+
+class GenericGNNModel(nn.Module):
+    def __init__(self, 
+                 input=1, 
+                 output=20, 
+                 hidden=20,
+                 layers=2, 
+                 layer_type='GATConv',
+                 activation='LeakyReLU',
+                 edge_dim=1, 
+                 layer_norm=False,
+                 edge_mlp_cfg=None,
+                 **kwargs):
+        super(GenericGNNModel, self).__init__()
+        if edge_mlp_cfg:
+            assert edge_mlp_cfg['output'] == 1 and edge_mlp_cfg['input'] == 1
+            self.edge_mlp = initialize_mlp(**edge_mlp_cfg)
+        # Initialize the first layer
+        graph_layer = globals()[layer_type]
+        if layers == 1:
+            self.initial = graph_layer(input, output, edge_dim=edge_dim)
+            self.module_list = nn.ModuleList([])
+        elif layers == 2:
+            self.initial = graph_layer(input, hidden, edge_dim=edge_dim)
+            self.output = graph_layer(hidden, output, edge_dim=edge_dim)
+            self.module_list = nn.ModuleList([])
+        else:
+            self.initial = graph_layer(input, hidden, edge_dim=edge_dim)
+            # Initialize the subsequent layers
+            self.module_list = nn.ModuleList([graph_layer(hidden, hidden, edge_dim=edge_dim) for _ in range(layers - 2)])
+            self.output = graph_layer(hidden, output, edge_dim=edge_dim)
+
+        # activation function
+        self.activation = globals()[activation]()
+
+        self.layer_type = layer_type
+        self.hidden_channels = hidden
+    
+    def random_init(self):
+        pass
+
+    def random_positive_init(self):
+        pass
+
+    def forward(self, x, edge_index, edge_attr=None, batch=None):
+
+        x = self.initial(x, edge_index, edge_attr=edge_attr)
+        x = self.activation(x)
+        for layer in self.module_list:
+            x = layer(x, edge_index, edge_attr=edge_attr)
+            x = self.activation(x)
+        if self.output:
+            x = self.output(x, edge_index, edge_attr=edge_attr)
         return x

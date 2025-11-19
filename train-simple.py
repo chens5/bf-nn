@@ -38,6 +38,14 @@ def reg_term(model, p):
         reg += torch.pow(param.abs(), p).sum()
     return reg
 
+def reg_term_exclude_mlp(model, p):
+    reg = 0.
+    for name, param in model.named_parameters():
+        if 'edge_mlp' in name:
+            continue
+        reg += torch.pow(param.abs(), p).sum()
+    return reg
+
 def l1_regularized_loss(out, batch, gnn=None, eta=0.1):
     return torch.sum(torch.square(out - batch.y)), eta * reg_term(gnn, 1)
 
@@ -57,6 +65,19 @@ def l0_regularized_loss(out, batch, gnn=None, eta=0.1):
 
 def l05_regularized_loss(out, batch, gnn=None, eta=0.1):
     return torch.sum(torch.square(out - batch.y)), eta * reg_term(gnn, 0.5)
+
+def l1_regularization_gnn_only(out, batch, gnn=None, eta=0.1):
+    return torch.sum(torch.square(out - batch.y)), eta * reg_term_exclude_mlp(gnn, 1)
+
+def format_lst(lst):
+    out = f'{lst[0]}'
+    for val in lst[1:]:
+        out += f'-{val}'
+    return out
+
+def polynomial(coefficients):
+    poly = np.polynomial.Polynomial(coefficients)
+    return poly
 
 def train_simple(train_dataloader, 
                  cfg,
@@ -83,10 +104,8 @@ def train_simple(train_dataloader,
         gnn.random_init()
     elif init == 'random-positive-init':
         gnn.random_positive_init()
-    # print(gnn.module_list[0].aggregation_layer)
-    # print(gnn.module_list[0].update_layer)
-    # print(gnn.module_list[1].aggregation_layer)
-    # print(gnn.module_list[1].update_layer)
+    
+
     gnn = gnn.to(device)
     optimizer = AdamW(gnn.parameters(), lr=lr)
     record_dir = os.path.join(log_dir, 'record/')
@@ -162,6 +181,7 @@ def main():
     parser.add_argument('--dataset-sizes', type=int, nargs='+')
     parser.add_argument('--search-eta-lr', type=int)
     parser.add_argument('--dataset-type', type=str)
+    parser.add_argument('--poly-weight-function', type=float, nargs='+', default= [0, 1])
 
     args = parser.parse_args()
 
@@ -219,6 +239,9 @@ def main():
                                             model,
                                             bias_for_log_dir,
                                             dstr )
+                
+                log_dir = os.path.join(log_dir, format_lst(args.poly_weight_function))
+                weight_func = polynomial(args.poly_weight_function)
                 f = []
                 for (dirpath, dirnames, filenames) in os.walk(log_dir):
                     f.extend([int(name) for name in dirnames])
@@ -234,7 +257,7 @@ def main():
                     if not os.path.exists(record_dir):
                         os.makedirs(record_dir)
                     print("Logging to: ",  record_dir)
-                    dataset = globals()[args.dataset_type](K=K, size=sz, inject_non_zero=perturb, include_small=True)
+                    dataset = globals()[args.dataset_type](K=K, size=sz, inject_non_zero=perturb, weight_func=weight_func, include_small=True)
                     save_dataset = os.path.join(log_dir, 'train_dataset.pt')
                     torch.save(dataset, save_dataset)
                     print("Size of dataset", len(dataset))

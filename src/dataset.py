@@ -27,7 +27,7 @@ class BellmanFordStep(Data):
         super().__init__(x, edge_index, edge_attr, y, pos, **kwargs)
 
 # parameters: G: networkx graph, m: final step, start: first step
-def m_step_bf_instance(G, m, start=0, start_node=0):
+def m_step_bf_instance(G, m, weight_func, start=0, start_node=0):
     G = copy.deepcopy(G)
     temp = {}
     for node in G.nodes:
@@ -40,7 +40,7 @@ def m_step_bf_instance(G, m, start=0, start_node=0):
                 continue
             min_val = G.nodes[node]['attr']
             for neighbor in G.neighbors(node):
-                val = G[node][neighbor]['weight'] + G.nodes[neighbor]['attr']
+                val = weight_func(G[node][neighbor]['weight']) + G.nodes[neighbor]['attr']
                 if val < min_val:
                     min_val = val
             temp[node]['attr'] = min_val
@@ -76,13 +76,13 @@ def nx_to_pyg(G):
                edge_attr=torch.tensor(edge_attr, dtype=torch.float).unsqueeze(1))
     return pyg
 
-def nx_to_bf_instance(G, m, start=0, start_node=0):
+def nx_to_bf_instance(G, m, weight_func=lambda n: n, start=0, start_node=0):
     edge_attr = []
     edge_index = [[], []]
     init_node_features = np.zeros(len(G.nodes))
     final_node_features = np.zeros(len(G.nodes))
 
-    final_bf_m_attrs, start_bf_m_attrs = m_step_bf_instance(G, m, start=start, start_node=start_node)
+    final_bf_m_attrs, start_bf_m_attrs = m_step_bf_instance(G, m, weight_func, start=start, start_node=start_node)
     
     for e in G.edges:
         edge_index[0].append(e[0])
@@ -136,15 +136,14 @@ def construct_test_dataset(K, steps=1):
     dataset.append(data)
     
     return dataset
-
-    
+ 
 
 # Construct dataset consisting single edges and two edges
-def path_2_3_dataset(size, inject_non_zero = False, **kwargs):
+def path_2_3_dataset(size, inject_non_zero = False, weight_func = lambda n: n, **kwargs):
     dataset = []
     for i in range(size):
         G = construct_k_path(2, [i + 1], s=0)
-        data = nx_to_bf_instance(G, 1, start=0)
+        data = nx_to_bf_instance(G, 1, weight_func, start=0)
         dataset.append(data)
     
     for i in range(size):
@@ -152,7 +151,7 @@ def path_2_3_dataset(size, inject_non_zero = False, **kwargs):
         if inject_non_zero:
             perturbation =np.abs( np.random.normal(loc=0.0, scale=1.0))
         G = construct_k_path(3, [i + 1, perturbation], s=0)
-        data = nx_to_bf_instance(G, 2, start=1)
+        data = nx_to_bf_instance(G, 2, weight_func, start=1)
         dataset.append(data)
     return dataset
 
